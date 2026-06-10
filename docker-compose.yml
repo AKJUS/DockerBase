@@ -1,24 +1,49 @@
-version: "3.9"
+name: ${PROJECT_NAME}
 
 services:
   postgres:
     image: postgres:16.2
+    restart: unless-stopped
     volumes:
-      - ./_local/db/:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-app_dev}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ports:
+      - "5432:5432"
+
   app:
-    restart: always
-    build: .
+    restart: unless-stopped
+    build:
+      context: .
+      args:
+        - MIX_ENV=${MIX_ENV:-dev}
     volumes:
       - .:/usr/src/${PROJECT_NAME}
+      - mix_deps:/usr/src/${PROJECT_NAME}/deps
+      - mix_build:/usr/src/${PROJECT_NAME}/_build
     ports:
-      - 4000:4000
+      - "4000:4000"
     env_file:
       - .env.dev
     environment:
-      MIX_ENV: prod # for tailwindcss
-    command:
-      bash -c "mix phx.server"
+      MIX_ENV: ${MIX_ENV:-dev}
+      DATABASE_URL: "ecto://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres/${POSTGRES_DB:-app_dev}"
+      PHX_HOST: ${PHX_HOST:-localhost}
+    command: >
+      bash -c "mix deps.get && mix ecto.create && mix ecto.migrate && mix phx.server"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  mix_deps:
+  mix_build:
